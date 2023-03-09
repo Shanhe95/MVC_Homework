@@ -1,12 +1,22 @@
 package com.sparta.mvc_homework.service;
 
 import com.sparta.mvc_homework.dto.PostRequestDto;
+import com.sparta.mvc_homework.dto.PostResponseDto;
 import com.sparta.mvc_homework.entity.Post;
+import com.sparta.mvc_homework.entity.User;
+
+import com.sparta.mvc_homework.jwt.JwtUtil;
 import com.sparta.mvc_homework.repository.PostRepository;
-import jakarta.transaction.Transactional;
+
+import com.sparta.mvc_homework.repository.UserRepository;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.transaction.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -14,50 +24,155 @@ import java.util.List;
 public class PostService {
 
     private final PostRepository postRepository;             //5.데이터베이스와 연결을 해야하기 때문에 연결하는 부분인
+    private final UserRepository userRepository;
 
-                                                            //PostRepository를 사용할 수 있도록 인스턴스 변수 생성.
-                                                            //그리고 Service를 만들었기 때문에 다시 컨트롤러로 돌아가서.
+    private final JwtUtil jwtUtil;
+
+    //PostRepository를 사용할 수 있도록 인스턴스 변수 생성.
+    //그리고 Service를 만들었기 때문에 다시 컨트롤러로 돌아가서.
     @Transactional
-    public Post createPost(PostRequestDto requestDto) {     //8. 데이터베이스에 연결해서 저장하려면 @Entity에 있는 Post클래스를 인스턴스로 만들어서
-        Post post = new Post(requestDto);                   //   그 값을 사용해서 저장해야 함. 그래서 Post 객체를 만들어주고 Post(Entity)에 있는
-        postRepository.save(post);                          //    생성자를 사용해서 값들을 넣어준다.   이 생성자는 Post에서 만들어졌음.(안만들면 객체에 못담는다 에러남)
-        return post;                                        //10. postRepository.save(post) 함수를 사용해서 함수안에 Post인스턴스를 넣어주면
-    }                                                       //     자동으로 쿼리가 생성되고 디비에 연결되면서 저장된다. 그리고 Post를 반환.
+    public Post createPost(PostRequestDto requestDto, HttpServletRequest request) {
+        // Request에서 Token 가져오기
+        String token = jwtUtil.resolveToken(request);
+        Claims claims;    //사용자 정보
+
+        // 토큰이 있는 경우에만 관심상품 추가 가능
+        if (token != null) {
+            if (jwtUtil.validateToken(token)) {
+                // 토큰에서 사용자 정보 가져오기
+                claims = jwtUtil.getUserInfoFromToken(token);
+            } else {
+                throw new IllegalArgumentException("Token Error");
+            }
+
+            // 토큰에서 가져온 사용자 정보를 사용하여 DB 조회
+            User user = userRepository.findByUsername(claims.getSubject()).orElseThrow(
+                    () -> new IllegalArgumentException("사용자가 존재하지 않습니다.")
+            );
+
+            Post post = postRepository.saveAndFlush(new Post(requestDto, user));                 //검증이 완료가 되면 new Product 에 requestDto, user.getId())가 들어간다
+            //원래는 Product에 userid가 들어가지 않았기 떄문에 saveAndFlush를 했었는데(위에 주석 코드)
+            //여기서는 Product와 user가 연관관계가 있다는 가정을 해서 Product쪽에 userid를 넣어줬기 때문에
+
+            return post;
+        }
+        return null;
+    }
+
 
     @Transactional   //(readOnly = true)
-    public List<Post> getPosts() {                                      //12.  조회기능 구현하러옴 (readOnly = true)읽기만 가능하게
-        return postRepository.findAllByOrderByModifiedAtDesc();         //postRepository를 연결해서 findAll()로 저장된 데이터를 가져올 수 있다
+    public List<PostResponseDto> getPosts() {                                      //12.  조회기능 구현하러옴 (readOnly = true)읽기만 가능하게
+        List<Post> postlist = postRepository.findAllByOrderByModifiedAtDesc();
+        List<PostResponseDto> responseDtoList = new ArrayList<>();
+        for (Post post : postlist) {
+            responseDtoList.add(new PostResponseDto(post));
+        }
+        return responseDtoList;
+
+
+        //postRepository를 연결해서 findAll()로 저장된 데이터를 가져올 수 있다
     }                                                                   //근데 포스트가 가장 최근에 등록된 포스트 순으로 보여주려고하기때문에
-                                                                        //findAllByOrderByModifiedAtDesc()을 써야하는데
-                                                                        //repository에서 설정을 해야함. 설정하러 ㄱㄱ
+
+    public PostResponseDto getPost(Long postId) {
+        Post post = postRepository.findById(postId).orElseThrow(() -> new IllegalArgumentException("아이디가 없습니다"));
+        return new PostResponseDto(post);
+    }
 
 
     @Transactional
-    public Post updatePost(Long id, PostRequestDto requestDto) throws Exception {
-        Post post = postRepository.findById(id).orElseThrow(
-                () -> new IllegalArgumentException("해당 게시글이 존재하지 않습니다."));
-        if (post.getPassword().equals(requestDto.getPassword())) {
-            post.update(requestDto);
-        } else {
-            throw new Exception("비밀번호가 일치하지 않습니다");
+    public PostResponseDto updatePost(Long postId, PostRequestDto requestDto, HttpServletRequest request) {
+        // Request에서 Token 가져오기
+        String token = jwtUtil.resolveToken(request);
+        Claims claims;    //사용자 정보
+
+        // 토큰이 있는 경우에만 관심상품 추가 가능
+        if (token != null) {
+            if (jwtUtil.validateToken(token)) {
+                // 토큰에서 사용자 정보 가져오기
+                claims = jwtUtil.getUserInfoFromToken(token);
+            } else {
+                throw new IllegalArgumentException("Token Error");
+            }
+
+            // 토큰에서 가져온 사용자 정보를 사용하여 DB 조회
+            User user = userRepository.findByUsername(claims.getSubject()).orElseThrow(
+                    () -> new IllegalArgumentException("아이디가 존재하지 않습니다.")
+            );
+
+            // 해당 사용자가 작성한 게시글인지 확인하기 위해 DB에서 게시글 조회
+            Post post = postRepository.findById(postId).orElseThrow(
+                    () -> new IllegalArgumentException("해당 게시글이 존재하지 않습니다.")
+            );
+
+            if (post.getUser().getId().equals(user.getId())) {
+                post.update(requestDto);
+            } else {
+                throw new IllegalArgumentException("해당 게시글을 수정할 권한이 없습니다.");
+            }
+            return new PostResponseDto(post);
         }
-        return post;
+        return null;
     }
 
-    public Post deletePost(Long id, PostRequestDto requestDto) throws Exception{
-        Post post = postRepository.findById(id).orElseThrow(
-                () -> new IllegalArgumentException(""));
-        if (post.getPassword().equals(requestDto.getPassword())) {
-            postRepository.delete(post);
-        } else {
-            throw new Exception("비밀번호가 일치하지 않습니다");
+
+//        Post post = postRepository.findById(id).orElseThrow(
+//                () -> new IllegalArgumentException("해당 게시글이 존재하지 않습니다."));
+//        if (post.getPassword().equals(requestDto.getPassword())) {
+//            post.update(requestDto);
+//        } else {
+//            throw new Exception("비밀번호가 일치하지 않습니다");
+//        }
+//        return post;
+
+
+    public PostResponseDto deletePost(Long postId, PostRequestDto requestDto, HttpServletRequest request){
+        // Request에서 Token 가져오기
+        String token = jwtUtil.resolveToken(request);
+        Claims claims;    //사용자 정보
+
+        // 토큰이 있는 경우에만 관심상품 추가 가능
+        if (token != null) {
+            if (jwtUtil.validateToken(token)) {
+                // 토큰에서 사용자 정보 가져오기
+                claims = jwtUtil.getUserInfoFromToken(token);
+            } else {
+                throw new IllegalArgumentException("Token Error");
+            }
+
+            // 토큰에서 가져온 사용자 정보를 사용하여 DB 조회
+            User user = userRepository.findByUsername(claims.getSubject()).orElseThrow(
+                    () -> new IllegalArgumentException("아이디가 존재하지 않습니다.")
+            );
+            // 해당 사용자가 작성한 게시글인지 확인하기 위해 DB에서 게시글 조회
+            Post post = postRepository.findById(postId).orElseThrow(
+                    () -> new IllegalArgumentException("해당 게시글이 존재하지 않습니다.")
+            );
+
+            if (post.getUser().getId().equals(user.getId())) {
+                postRepository.delete(post);
+            } else {
+                throw new IllegalArgumentException("해당 게시글을 삭제할 권한이 없습니다.");
+            }
+            return new PostResponseDto(post);
         }
-        return post;
+        return null;
     }
-
-    public Post findOnePost(Long id) {
-        Post post = postRepository.findById(id).orElse(null);
-        return post;
     }
+//        Post post = postRepository.findById(postId).orElseThrow(
+//                () -> new IllegalArgumentException(""));
+//        if (post.getPassword().equals(requestDto.getPassword())) {
+//            postRepository.delete(post);
+//        } else {
+//            throw new Exception("비밀번호가 일치하지 않습니다");
+//        }
+//        return post;
+//    }
 
-}
+//
+//    public Post findOnePost(Long id) {
+//        Post post = postRepository.findById(id).orElse(null);
+//        return post;
+//    }
+
+
+

@@ -7,21 +7,19 @@ import com.sparta.mvc_homework.entity.UserRoleEnum;
 import com.sparta.mvc_homework.jwt.JwtUtil;
 import com.sparta.mvc_homework.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.servlet.http.HttpServletResponse;
 import java.util.Optional;
-
-@Service
+@Slf4j
 @RequiredArgsConstructor
+@Service
 public class UserService {
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
     private static final String ADMIN_TOKEN = "AAABnvxRVklrnYxKZ0aHgTBcXukeZygoC";
-
-    public UserService() {
-    }
 
     @Transactional
     public void signup(SignupRequestDto signupRequestDto) {
@@ -46,15 +44,13 @@ public class UserService {
         User user = new User(username, password, email, role);
         userRepository.save(user);
 
-//        - username은  `최소 4자 이상, 10자 이하이며 알파벳 소문자(a~z), 숫자(0~9)`로 구성되어야 한다.
-//        - password는  `최소 8자 이상, 15자 이하이며 알파벳 대소문자(a~z, A~Z), 숫자(0~9)`로 구성되어야 한다.
-//        - DB에 중복된 username이 없다면 회원을 저장하고 Client 로 성공했다는 메시지, 상태코드 반환하기
     }
 
     @Transactional(readOnly = true)
     public void login(LoginRequestDto loginRequestDto, HttpServletResponse response) {
         String username = loginRequestDto.getUsername();
         String password = loginRequestDto.getPassword();
+        log.info("username={}",username);                        /////////////
 
         // 사용자 확인
         User user = userRepository.findByUsername(username).orElseThrow(
